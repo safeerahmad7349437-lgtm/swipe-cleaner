@@ -1,72 +1,72 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>Friend Swipe Cleaner</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Friend Cleaner</title>
 <style>
-body { background:#111; color:white; font-family:Arial; text-align:center; margin:0; }
-#card { width:260px; margin:40px auto; background:#222; border-radius:12px; padding:16px; box-shadow:0 0 15px #000; }
-img { width:240px; border-radius:12px; }
-button { width:120px; margin:10px; padding:10px; border-radius:8px; border:none; font-size:18px; }
-.keep { background:#1ea21e; }
-.remove { background:#d93434; }
+body { text-align:center; font-family:Arial; background:#111; color:white; }
+button { padding:12px 20px; margin:10px; font-size:18px; border:none; border-radius:10px; cursor:pointer; }
+#keep { background:#3cb371; }
+#remove { background:#d9534f; }
+img { border-radius:50%; margin-top:20px; }
 </style>
 </head>
 <body>
 
-<h2>Roblox Friend Swipe Cleaner</h2>
-<p>Swipe or tap buttons to keep/remove.</p>
+<h2>Roblox Friend Cleaner</h2>
+<img id="avatar" width="150" height="150">
+<h3 id="name"></h3>
 
-<div id="card">
-  <img id="avatar" src="">
-  <h3 id="name"></h3>
-</div>
-
-<button class="keep" onclick="keep()">KEEP</button>
-<button class="remove" onclick="removeFriend()">UNFRIEND</button>
+<button id="keep" onclick="keepFriend()">Keep</button>
+<button id="remove" onclick="removeFriend()">Unfriend</button>
 
 <script>
 let index = 0;
 let data = [];
 
-async function load() {
-    const r = await fetch("https://friends.roblox.com/v1/my/friends", {credentials:"include"});
-    data = await r.json();
-    data = data.data.sort(() => Math.random() - 0.5); // random order
-    show();
+async function getUserId() {
+    const r = await fetch("https://users.roblox.com/v1/users/authenticated", {
+        credentials: "include"
+    });
+    const j = await r.json();
+    return j.id;
 }
 
-async function show() {
-    if (index >= data.length) {
-        document.getElementById("name").innerText = "Done ✅";
-        document.getElementById("avatar").src = "";
+async function loadFriends() {
+    const userId = await getUserId();
+    const r = await fetch(`https://friends.roblox.com/v1/users/${userId}/friends`, {
+        credentials: "include"
+    });
+    data = await r.json();
+    showFriend();
+}
+
+function showFriend() {
+    if (!data.data || index >= data.data.length) {
+        document.body.innerHTML = "<h1>✅ Done — No More Friends</h1>";
         return;
     }
-
-    let u = data[index];
-    document.getElementById("name").innerText = u.displayName+" (@"+u.name+")";
-
-    let thumb = await fetch(`https://thumbnails.roblox.com/v1/users/avatar?userIds=${u.id}&size=352x352&format=Png&isCircular=false`);
-    let j = await thumb.json();
-    document.getElementById("avatar").src = j.data[0].imageUrl;
+    const f = data.data[index];
+    document.getElementById("avatar").src = `https://www.roblox.com/headshot-thumbnail/image?userId=${f.id}&width=150&height=150&format=png`;
+    document.getElementById("name").innerText = f.name;
 }
 
-function keep() {
+window.keepFriend = () => {
     index++;
-    show();
-}
+    showFriend();
+};
 
-async function removeFriend() {
-    let u = data[index];
-    await fetch(`https://friends.roblox.com/v1/users/${u.id}/unfriend`, {
+window.removeFriend = async () => {
+    const f = data.data[index];
+    await fetch(`https://friends.roblox.com/v1/users/${f.id}/unfriend`, {
         method: "POST",
         credentials: "include"
     });
     index++;
-    show();
-}
+    showFriend();
+};
 
-load();
+loadFriends();
 </script>
 
 </body>
