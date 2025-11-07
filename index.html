@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Roblox Swipe Cleaner — Mobile</title>
+<style>
+  :root{--bg:#0f172a;--card:#ffffff;--muted:#6b7280;--accent:#0ea5e9}
+  html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#f3f4f6}
+  .app{max-width:720px;margin:0 auto;padding:12px}
+  header{display:flex;align-items:center;gap:12px}
+  header h1{font-size:18px;margin:0}
+  .controls{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}
+  button{padding:8px 12px;border-radius:10px;border:0;background:var(--accent);color:#fff;cursor:pointer}
+  button.ghost{background:#fff;color:#111;border:1px solid #ddd}
+  .cardWrap{display:flex;align-items:center;justify-content:center;height:68vh}
+  .card{width:84vw;max-width:520px;background:#fff;border-radius:14px;box-shadow:0 10px 30px rgba(2,6,23,0.12);overflow:hidden;touch-action:none;user-select:none;display:flex;flex-direction:column;align-items:center}
+  .avatar{width:100%;height:60vh;background:#eaeaea;background-position:center;background-size:cover}
+  .meta{padding:12px;width:100%;display:flex;flex-direction:column;gap:6px}
+  .display{font-weight:700;font-size:18px}
+  .username{color:var(--muted);font-size:14px}
+  .hint{padding:8px;text-align:center;color:var(--muted);font-size:13px}
+  .progress{font-size:13px;color:var(--muted);margin-top:8px;text-align:center}
+  .footer{font-size:12px;color:#475569;margin-top:12px}
+  .small{font-size:12px;color:var(--muted)}
+  .topRow{display:flex;align-items:center;justify-content:space-between;width:100%}
+  .btnTiny{padding:6px 8px;border-radius:8px;border:0;cursor:pointer;background:#f8fafc}
+  .danger{background:#fee2e2;color:#991b1b}
+  @media (min-width:720px){ .card{width:520px} }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>Swipe Cleaner — Mobile</h1>
+  </header>
+
+  <div class="controls">
+    <button id="loadBtn">Load Friends</button>
+    <button class="ghost" id="shuffleBtn">Shuffle</button>
+    <button class="ghost" id="resetBtn">Reset</button>
+    <button class="ghost" id="helpBtn">Help</button>
+  </div>
+
+  <div class="cardWrap" id="cardWrap">
+    <div class="card" id="card" aria-live="polite">
+      <div class="avatar" id="avatar" style="background-image:url('');"></div>
+      <div class="meta">
+        <div class="topRow">
+          <div>
+            <div class="display" id="displayName">—</div>
+            <div class="username" id="username">@username</div>
+          </div>
+          <div>
+            <button class="btnTiny" id="openProfileBtn">Open Profile</button>
+          </div>
+        </div>
+
+        <div class="hint" id="hint">Swipe left = Unfriend (opens profile). Swipe right = Keep.</div>
+        <div class="progress" id="progress">0 / 0</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:8px;justify-content:center;margin-top:10px">
+    <button class="ghost" id="open1">Open 1</button>
+    <button class="ghost" id="open5">Open 5</button>
+    <button class="ghost" id="open10">Open 10</button>
+  </div>
+
+  <div class="footer">
+    <div class="small">Note: This tool does NOT unfriend automatically. It opens the Roblox browser profile where you must press Unfriend manually.</div>
+    <div class="small" style="margin-top:6px">If loading fails, enable Desktop Site in Chrome and try again.</div>
+  </div>
+</div>
+
+<script>
+(async function(){
+  // Config
+  const PROXY_BASE = 'https://roproxy.com/'; // fallback proxy (common public proxy used for Roblox API CORS)
+  const FRIENDS_ENDPOINT = 'https://friends.roblox.com/v1/my/friends?limit=100';
+  const THUMB_ENDPOINT = (ids) => `https://thumbnails.roblox.com/v1/users/avatar?userIds=${ids}&size=352x352&format=png&isCircular=false`;
+
+  // State
+  let friends = []; // {id, username, displayName, avatarUrl}
+  let order = []; // indices
+  let idx = 0;
+  let dragging = false, startX=0, startY=0, cardStartX=0, cardEl;
+
+  // DOM
+  const loadBtn = document.getElementById('loadBtn');
+  const shuffleBtn = document.getElementById('shuffleBtn');
+  const resetBtn = document.getElementById('resetBtn');
+  const helpBtn = document.getElementById('helpBtn');
+  const open1 = document.getElementById('open1');
+  const open5 = document.getElementById('open5');
+  const open10 = document.getElementById('open10');
+  const avatarEl = document.getElementById('avatar');
+  const displayNameEl = document.getElementById('displayName');
+  const usernameEl = document.getElementById('username');
+  const progressEl = document.getElementById('progress');
+  const openProfileBtn = document.getElementById('openProfileBtn');
+  cardEl = document.getElementById('card');
+
+  // Helpers
+  function setCard(f){
+    if(!f){
+      avatarEl.style.backgroundImage = "url('')";
+      displayNameEl.textContent = 'No more friends';
+      usernameEl.textContent = '';
+      progressEl.textContent = '0 / 0';
+      return;
+    }
+    avatarEl.style.backgroundImage = `url('${f.avatarUrl || ''}')`;
+    displayNameEl.textContent = f.displayName || f.username || 'Unknown';
+    usernameEl.textContent = '@' + (f.username||'');
+    progressEl.textContent = `${Math.min(idx+1, order.length)} / ${order.length}`;
+  }
+
+  function shuffleArray(a){
+    for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+    return a;
+  }
+
+  function updateUI(){
+    const cur = friends[ order[idx] ];
+    setCard(cur);
+  }
+
+  function openProfileAt(i){
+    const f = friends[ order[i] ];
+    if(!f) return;
+    // open browser profile (A = Browser)
+    window.open(`https://www.roblox.com/users/${f.id}/profile`, '_blank');
+  }
+
+  // Swipe handling (touch)
+  function onTouchStart(e){
+    dragging = true;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    cardStartX = 0;
+    cardEl.style.transition = 'none';
+  }
+  function onTouchMove(e){
+    if(!dragging) return;
+    const dx = e.touches[0].clientX - startX;
+    cardEl.style.transform = `translateX(${dx}px) rotate(${dx/20}deg)`;
+  }
+  function onTouchEnd(e){
+    if(!dragging) return;
+    dragging = false;
+    cardEl.style.transition = 'transform 220ms';
+    const transformX = new WebKitCSSMatrix(window.getComputedStyle(cardEl).transform).m41;
+    const threshold = Math.min(window.innerWidth * 0.18, 100);
+    if(transformX <= -threshold){
+      // left swipe: open profile (unfriend)
+      cardEl.style.transform = `translateX(-120%) rotate(-20deg)`;
+      setTimeout(()=>{ openProfileAt(idx); advance(); cardEl.style.transform='none'; }, 240);
+    } else if(transformX >= threshold){
+      // right swipe: keep
+      cardEl.style.transform = `translateX(120%) rotate(20deg)`;
+      setTimeout(()=>{ advance(); cardEl.style.transform='none'; }, 200);
+    } else {
+      cardEl.style.transform = 'none';
+    }
+  }
+
+  // Mouse support (desktop)
+  function onMouseDown(e){
+    dragging = true;
+    startX = e.clientX;
+    cardStartX = 0;
+    cardEl.style.transition = 'none';
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }
+  function onMouseMove(e){
+    if(!dragging) return;
+    const dx = e.clientX - startX;
+    cardEl.style.transform = `translateX(${dx}px) rotate(${dx/20}deg)`;
+  }
+  function onMouseUp(e){
+    if(!dragging) return;
+    dragging = false;
+    cardEl.style.transition = 'transform 220ms';
+    const transformX = new WebKitCSSMatrix(window.getComputedStyle(cardEl).transform).m41;
+    const threshold = Math.min(window.innerWidth * 0.18, 100);
+    if(transformX <= -threshold){
+      cardEl.style.transform = `translateX(-120%) rotate(-20deg)`;
+      setTimeout(()=>{ openProfileAt(idx); advance(); cardEl.style.transform='none'; }, 240);
+    } else if(transformX >= threshold){
+      cardEl.style.transform = `translateX(120%) rotate(20deg)`;
+      setTimeout(()=>{ advance(); cardEl.style.transform='none'; }, 200);
+    } else {
+      cardEl.style.transform = 'none';
+    }
+    window.removeEventListener('mousemove', onMouseMove);
+    window.removeEventListener('mouseup', onMouseUp);
+  }
+
+  // Advance index and update card
+  function advance(){
+    if(idx < order.length - 1) idx++;
+    else { idx = order.length; setCard(null); return; }
+    updateUI();
+  }
+
+  // Load friends: try direct Roblox API first, then proxy fallback
+  async function loadFriends(){
+    loadBtn.disabled = true; loadBtn.textContent = 'Loading...';
+    try {
+      // 1) try direct fetch (CORS allowed if browser session shares cookies)
+      let res = await fetch(FRIENDS_ENDPOINT, {credentials:'include'});
+      if(!res.ok){
+        // try proxy fallback
+        const proxyUrl = PROXY_BASE + FRIENDS_ENDPOINT;
+        res = await fetch(proxyUrl, {credentials:'include'});
+      }
+      if(!res.ok) throw new Error('Failed to fetch friends (server responded '+res.status+')');
+      const j = await res.json();
+      if(!j.data || !j.data.length) { friends = []; order=[]; idx=0; setCard(null); alert('No friends found or rate-limited.'); return; }
+      // simplify friend list
+      friends = (j.data || []).map(u=>({
+        id: u.id,
+        username: u.name || u.username || '',
+        displayName: u.displayName || u.name || u.username || ''
+      }));
+      // request avatars in batch
+      const ids = friends.map(f=>f.id).join(',');
+      let tRes = await fetch(THUMB_ENDPOINT(ids), {credentials:'include'});
+      if(!tRes.ok){
+        // try proxy fallback for thumbnails
+        tRes = await fetch(PROXY_BASE + THUMB_ENDPOINT(ids), {credentials:'include'});
+      }
+      if(tRes.ok){
+        const tj = await tRes.json();
+        const map = {};
+        (tj.data||[]).forEach(d=> map[String(d.targetId)] = d.imageUrl);
+        friends = friends.map(f => ({ ...f, avatarUrl: map[String(f.id)] || '' }));
+      } else {
+        // fallback: empty avatars
+        friends = friends.map(f => ({...f, avatarUrl: ''}));
+      }
+      // random order by default
+      order = shuffleArray(friends.map((_,i)=>i));
+      idx = 0;
+      updateUI();
+      loadBtn.textContent = 'Reload Friends';
+    } catch(err){
+      console.error(err);
+      alert('Load failed: ' + (err.message || 'unknown error') + '\nTry enabling Desktop Site and reload. If it still fails, the page can use a proxy (roproxy.com).');
+    } finally{
+      loadBtn.disabled = false;
+    }
+  }
+
+  // UI actions
+  loadBtn.addEventListener('click', ()=> loadFriends());
+  shuffleBtn.addEventListener('click', ()=> { order = shuffleArray(order); idx=0; updateUI(); });
+  resetBtn.addEventListener('click', ()=> { idx=0; updateUI(); });
+  helpBtn.addEventListener('click', ()=> alert('Swipe Right = Keep (goes to next).\\nSwipe Left = Open profile in browser to unfriend manually.\\nEnable Desktop Site in Chrome for best behavior.'));
+
+  open1.addEventListener('click', ()=> { openNextN(1); });
+  open5.addEventListener('click', ()=> { openNextN(5); });
+  open10.addEventListener('click', ()=> { openNextN(10); });
+
+  openProfileBtn.addEventListener('click', ()=> openProfileAt(idx));
+
+  // open next N (small delay to reduce popup blocking)
+  async function openNextN(n){
+    if(!order.length){ alert('No friends loaded'); return; }
+    const remain = Math.max(0, order.length - idx);
+    const to = Math.min(n, remain);
+    for(let i=0;i<to;i++){
+      openProfileAt(idx + i);
+      await new Promise(r=>setTimeout(r, 180));
+    }
+    idx += to;
+    if(idx >= order.length) { setCard(null); } else updateUI();
+  }
+
+  // touch / mouse listeners for swipe
+  cardEl.addEventListener('touchstart', onTouchStart, {passive:true});
+  cardEl.addEventListener('touchmove', onTouchMove, {passive:true});
+  cardEl.addEventListener('touchend', onTouchEnd);
+
+  cardEl.addEventListener('mousedown', onMouseDown);
+
+  // initialize with placeholder
+  setCard(null);
+
+})();
+</script>
+</body>
+</html>
